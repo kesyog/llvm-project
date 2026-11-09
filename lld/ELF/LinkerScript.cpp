@@ -612,14 +612,14 @@ LinkerScript::computeInputSections(const InputSectionDescription *cmd,
     for (const SectionPattern &pat : cmd->sectionPatterns) {
       size_t sizeBeforeCurrPat = ret.size();
 
-      for (size_t i = 0, e = sections.size(); i != e; ++i) {
+      auto matchInputSection = [&](size_t i) {
         // Skip if the section is dead, has been matched by a previous input
         // section description with non-contiguous regions disabled, or has been
         // matched by a previous pattern in this input section description.
         InputSectionBase *sec = sections[i];
         if (!sec->isLive() || (!enableNonContiguousRegions && sec->parent) ||
             seen.contains(i))
-          continue;
+          return;
 
         // For --emit-relocs we have to ignore entries like
         //   .rela.dyn : { *(.rela.data) }
@@ -628,15 +628,15 @@ LinkerScript::computeInputSections(const InputSectionDescription *cmd,
         // want to support scripts that do custom layout for them.
         if (isa<InputSection>(sec) &&
             cast<InputSection>(sec)->getRelocatedSection())
-          continue;
+          return;
 
         // Check the name early to improve performance in the common case.
         if (!pat.sectionPat.match(sec->name))
-          continue;
+          return;
 
         if (!cmd->matchesFile(*sec->file) || pat.excludesFile(*sec->file) ||
             !flagsMatch(sec))
-          continue;
+          return;
 
         if (sec->parent) {
           assert(ctx.arg.enableNonContiguousRegions);
@@ -644,7 +644,7 @@ LinkerScript::computeInputSections(const InputSectionDescription *cmd,
           // Disallow spilling into /DISCARD/; special handling would be needed
           // for this in address assignment, and the semantics are nebulous.
           if (outCmd.name == "/DISCARD/")
-            continue;
+            return;
 
           // Class definitions cannot contain spills, nor can a class definition
           // generate a spill in a subsequent match. Those behaviors belong to
@@ -656,6 +656,28 @@ LinkerScript::computeInputSections(const InputSectionDescription *cmd,
         ret.push_back(sec);
         indexes.push_back(i);
         seen.insert(i);
+      };
+
+      std::optional<StringRef> exact =
+          sections.data() == ctx.inputSections.data()
+              ? pat.sectionPat.exactPattern()
+              : std::nullopt;
+      // Default linker scripts (e.g. GNU ld --verbose) contain ~100 exact
+      // patterns where linear ExactMatch length checks beat hashing all input
+      // sections. Build the index only when exact patterns are numerous.
+      constexpr size_t exactPatternThreshold = 256;
+      if (exact && ++exactSectionPatternCount > exactPatternThreshold) {
+        if (exactSectionPatternCount == exactPatternThreshold + 1)
+          for (auto [i, sec] : llvm::enumerate(ctx.inputSections))
+            if (sec->isLive())
+              sectionIndexMap[CachedHashStringRef(sec->name)].push_back(i);
+        if (auto it = sectionIndexMap.find(CachedHashStringRef(*exact));
+            it != sectionIndexMap.end())
+          for (uint32_t i : it->second)
+            matchInputSection(i);
+      } else {
+        for (size_t i = 0, e = sections.size(); i != e; ++i)
+          matchInputSection(i);
       }
 
       if (pat.sortOuter == SortSectionPolicy::Default)
@@ -906,6 +928,8 @@ void LinkerScript::processSectionCommands() {
     }
   nextClass:;
   }
+  sectionIndexMap = {};
+  exactSectionPatternCount = 0;
 }
 
 void LinkerScript::processSymbolAssignments() {

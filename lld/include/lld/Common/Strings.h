@@ -13,6 +13,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/GlobPattern.h"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,12 @@ public:
   // Returns true for pattern "*" which will match all inputs.
   bool isTrivialMatchAll() const {
     return !ExactMatch && GlobPatternMatcher.isTrivialMatchAll();
+  }
+
+  std::optional<llvm::StringRef> exactPattern() const {
+    if (ExactMatch)
+      return ExactPattern;
+    return std::nullopt;
   }
 
 private:
@@ -71,6 +78,11 @@ public:
   void addPattern(SingleStringMatcher Matcher) { patterns.push_back(Matcher); }
 
   bool empty() const { return patterns.empty(); }
+
+  // Returns the pattern if this matches a single exact string.
+  std::optional<llvm::StringRef> exactPattern() const {
+    return patterns.size() == 1 ? patterns[0].exactPattern() : std::nullopt;
+  }
 
   // Match s against the patterns.
   bool match(llvm::StringRef s) const;

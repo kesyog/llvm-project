@@ -317,6 +317,9 @@ class LinkerScript final {
   Ctx &ctx;
   SmallVector<std::unique_ptr<OutputDesc>, 0> descPool;
   llvm::DenseMap<llvm::CachedHashStringRef, OutputDesc *> nameToOutputSection;
+  llvm::DenseMap<llvm::CachedHashStringRef, SmallVector<uint32_t, 2>>
+      sectionIndexMap;
+  size_t exactSectionPatternCount = 0;
 
   StringRef getOutputSectionName(const InputSectionBase *s) const;
   void addSymbol(SymbolAssignment *cmd);

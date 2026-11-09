@@ -91,6 +91,23 @@ SECTIONS {
   .text : { *([.]abc .ab[v-y] ) }
 }
 
+#--- b.s
+## Exercise the lazy exact section name index (> 256 exact patterns), including
+## file-pattern filtering, multi-object input-order preservation, and single match.
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux b.s -o b.o
+# RUN: %python -c 'print("SECTIONS { .text : { " + " ".join(f"*(.n{i})" for i in range(256)) + " b.o(.abx) *(.abc) *(.abcd) } }")' > exact-index.lds
+# RUN: ld.lld -T exact-index.lds a.o b.o -o out -Map=- | FileCheck %s --check-prefix=EXACT-MAP
+# EXACT-MAP:      .text
+# EXACT-MAP-NEXT:         b.o:(.abx)
+# EXACT-MAP-NEXT:         a.o:(.abc)
+# EXACT-MAP-NEXT:         b.o:(.abc)
+# EXACT-MAP-NEXT:         a.o:(.abcd)
+.section .abc,"ax",@progbits
+.long 0
+
+.section .abx,"ax",@progbits
+.long 0
+
 ## Test a few non-wildcard characters rejected by GNU ld.
 
 #--- lbrace.lds
